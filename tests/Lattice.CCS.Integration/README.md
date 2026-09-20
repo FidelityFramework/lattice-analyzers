@@ -29,6 +29,9 @@ direct, partial and bare-alias applications. Their result hovers must remain
 `int<m> option`; partial hovers retain both option domains/results. Mismatched
 dimensions, nonoption fallbacks/results and nonunit thunk arguments require the
 existing CCS8040/CCS8003 errors at their exact source spans.
+`Option.iter` checks unit results, a measured partial-action signature and one
+bare alias used at two dimensions, with exact rejection of nonunit callback results,
+wrong argument dimensions, nonoption inputs and nonfunction callbacks.
 
 This is a compiler-consumer integration gate, not a ported analyzer or a language execution
 oracle. The [waypoint](../../docs/option-waypoint.md) links the separately owned compiler,

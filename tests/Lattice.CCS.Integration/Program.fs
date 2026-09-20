@@ -56,6 +56,11 @@ let accepted =
         "orElse bare alias optional result", "let choose = Option.orElse\nlet selected = choose None (Some 6<m>)"
         "orElseWith bare alias optional result",
         "let choose = Option.orElseWith\nlet selected = choose (fun () -> Some 7<m>) None"
+        "iter unit result", "let selected = Option.iter (fun (value: int<m>) -> ignore value) (Some 1<m>)"
+        "iter partial action",
+        "let choose = Option.iter (fun (value: int<m>) -> ignore value)\nlet selected = choose None"
+        "iter bare generic alias",
+        "let choose = Option.iter\nlet first = choose (fun (value: int<m>) -> ignore value) (Some 2<m>)\nlet selected = choose (fun (value: int<s>) -> ignore value) (Some 3<s>)"
     ]
 
 // Markers identify the exact compiler diagnostic span; parser/project failures
@@ -85,6 +90,10 @@ let rejected =
         "let choose = Option.orElseWith (fun () -> Some 1<m>)\nlet selected = «choose (Some 2<s>)»"
         "orElseWith thunk domain", "CCS8003", "let selected = «Option.orElseWith (fun (_: int<m>) -> Some 1<m>)» None"
         "orElseWith nonoption thunk result", "CCS8003", "let selected = «Option.orElseWith (fun () -> 1<m>)» None"
+        "iter nonunit callback result", "CCS8003", "let selected = «Option.iter (fun (value: int<m>) -> value)» None"
+        "iter argument dimension", "CCS8040", "let selected = «Option.iter (fun (_: int<m>) -> ()) (Some 1<s>)»"
+        "iter nonoption input", "CCS8003", "let selected = «Option.iter (fun (_: int<m>) -> ()) 1<m>»"
+        "iter nonfunction callback", "CCS8003", "let selected = «Option.iter 1<m>» None"
         "direct capture explicit argument dimension",
         "CCS8040",
         "let selected =\n    let offset = 7<m>\n    let shift (value: int<m>) = offset + value\n    «shift 3<s>»"
@@ -144,7 +153,15 @@ output_kind = "library"
             |> Array.findIndex (fun line -> line.StartsWith("let selected"))
 
         let hover = session.TryHover(snapshot.Revision, file, selectedLine, 5) |> current
-        check (hover.Type.Contains("m")) $"{name}: lost dimensional type {hover.Type}"
+
+        if name.StartsWith("iter", StringComparison.Ordinal) then
+            equal "unit" hover.Type
+
+            if name = "iter partial action" then
+                let partial = session.TryHover(snapshot.Revision, file, 3, 5) |> current
+                equal "int<m> option -> unit" partial.Type
+        else
+            check (hover.Type.Contains("m")) $"{name}: lost dimensional type {hover.Type}"
 
         if name.StartsWith("orElse", StringComparison.Ordinal) then
             equal "int<m> option" hover.Type
