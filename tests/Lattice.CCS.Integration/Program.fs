@@ -26,6 +26,9 @@ let source body =
 let loopCapture =
     "let selected =\n    for index = 1 to 2 do\n        let visit = fun (value: int) -> ignore (index + value)\n        visit 0\n    ()"
 
+let nestedSequence =
+    "let selected = seq {\n    let inner = seq { yield true }\n    yield 1<m>\n}"
+
 // Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
 let directCaptures =
     """module DirectCaptures
@@ -83,6 +86,7 @@ let accepted =
         "Result.iter measured action",
         "let selected = Result.iter<int<m>, int<s>> (fun value -> ignore value) (Ok 2<m>)"
         "native seq source", "let selected = seq { yield 1<m> }"
+        "nested sequence element owners", nestedSequence
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -167,6 +171,12 @@ let rejected =
         "let selected = seq {\n    let work = fun () -> «yield 1»\n    yield 2\n}"
         "CE lexical seq", "CCS8401",
         "let seq value = not value\nlet selected = seq «{ yield true }»"
+        "Sequence mixed yield dimensions", "CCS8040",
+        "let selected = seq { yield 1<m>; «yield 2<s>» }"
+        "Sequence scalar delegation", "CCS8003",
+        "let selected = seq { «yield! 1» }"
+        "Sequence conflicting delegations", "CCS8040",
+        "let selected = seq { yield! seq { yield 1<m> }; «yield! seq { yield 2<s> }» }"
         "intrinsic Math.sin dimension", "CCS8040", "let selected = «Math.sin 1.0<m>»"
     ]
 
@@ -209,6 +219,13 @@ output_kind = "library"
     validateSnapshot first
     let firstText = JsonSerializer.Serialize first
 
+    let checkNestedSequence (snapshot: EditorSnapshot) =
+        let lines = (source nestedSequence).Split('\n')
+        for name, expected in ["selected", "seq<int<m>>"; "inner", "seq<bool>"] do
+            let line = lines |> Array.findIndex (fun text -> text.Contains("let " + name + " =", StringComparison.Ordinal))
+            let column = lines[line].IndexOf(name, StringComparison.Ordinal)
+            equal expected (session.TryHover(snapshot.Revision, file, line, column) |> current).Type
+
     let checkLoopCapture (snapshot: EditorSnapshot) =
         let lines = (source loopCapture).Split('\n')
         let hoverAt (marker: string) (name: string) reference =
@@ -240,7 +257,9 @@ output_kind = "library"
 
         let hover = session.TryHover(snapshot.Revision, file, selectedLine, 5) |> current
 
-        if name = "native seq source" then
+        if name = "nested sequence element owners" then
+            checkNestedSequence snapshot
+        elif name = "native seq source" then
             equal "seq<int<m>>" hover.Type
         elif name = "loop capture source signature" then
             checkLoopCapture snapshot
@@ -394,6 +413,13 @@ output_kind = "library"
         check (not (String.IsNullOrWhiteSpace diagnostic.Message)) "Compiler diagnostic lost its explanation"
         printfn "PASS CCS rejection: %s (%s, exact source range)" name code
 
+        if name.StartsWith("Sequence ", StringComparison.Ordinal) then
+            let restored = session.CheckAsync(Map.ofList [ file, source nestedSequence ]).Result |> current
+            validateSnapshot restored
+            check (restored.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error")) "Sequence repair retained an error"
+            checkNestedSequence restored
+            printfn "PASS CCS independent sequence element types after unsaved repair: %s" name
+
         if name.StartsWith("CE ", StringComparison.Ordinal) then
             let repairName, expectedType =
                 if name = "CE custom builder" then "Result.iter measured action", "unit"
@@ -473,6 +499,7 @@ output_kind = "library"
                 "Option/Result, integer ranges, direct immutable capture and lexical Math projections through CCS.Editor; no analyzer rule or native execution claim"
             lexicalMathRepairs = lexicalMathRepairs
             loopCaptureSource = source loopCapture
+            nestedSequenceSource = source nestedSequence
             directCaptures =
                 {|
                     source = directCaptures

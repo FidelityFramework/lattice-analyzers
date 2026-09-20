@@ -58,6 +58,10 @@ lambdas and lexically shadowed `seq` forms require CCS8401 at their complete
 unsupported AST span. Repairs retain ordinary `Result.iter` and native `seq`
 source hovers. This checks source admission only, not general builder support,
 sequence-frame completion or sequence execution.
+Nested sequence owners retain independent `seq<int<m>>` and `seq<bool>` hovers.
+Mixed-dimension yields, scalar `yield!` operands and contradictory yield!-only
+delegations require exact CCS8040/CCS8003 form spans. Unsaved repairs restore both
+owner types; these remain source/type projections only.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.
