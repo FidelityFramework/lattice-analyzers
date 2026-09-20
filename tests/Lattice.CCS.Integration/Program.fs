@@ -29,6 +29,9 @@ let loopCapture =
 let nestedSequence =
     "let selected = seq {\n    let inner = seq { yield true }\n    yield 1<m>\n}"
 
+let capturedSequence =
+    "let make () =\n    let seed = 1<m>\n    seq { yield seed }\nlet selected = make ()"
+
 // Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
 let directCaptures =
     """module DirectCaptures
@@ -91,6 +94,7 @@ let accepted =
         "let inspect = Result.isError<int<s>, int<m>>\nlet selected = inspect (Error 2<m>)"
         "native seq source", "let selected = seq { yield 1<m> }"
         "nested sequence element owners", nestedSequence
+        "captured sequence source identity", capturedSequence
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -227,6 +231,26 @@ output_kind = "library"
     validateSnapshot first
     let firstText = JsonSerializer.Serialize first
 
+    let checkCapturedSequence (snapshot: EditorSnapshot) =
+        let lines = (source capturedSequence).Split('\n')
+        let hoverAt (marker: string) (token: string) =
+            let line = lines |> Array.findIndex (fun text -> text.Contains(marker, StringComparison.Ordinal))
+            let column = lines[line].IndexOf(token, StringComparison.Ordinal)
+            session.TryHover(snapshot.Revision, file, line, column) |> current
+        equal "unit -> seq<int<m>>" (hoverAt "let make" "make").Type
+        equal "seq<int<m>>" (hoverAt "let selected" "selected").Type
+        let expression = hoverAt "seq { yield seed }" "seq"
+        equal "seq<int<m>>" expression.Type
+        equal "SeqExpr" expression.Kind
+        let declaration = hoverAt "let seed" "seed"
+        let captured = hoverAt "seq { yield seed }" "seed"
+        equal "int<m>" declaration.Type
+        equal "int<m>" captured.Type
+        equal "Binding" declaration.Kind
+        equal "VarRef" captured.Kind
+        equal (Some declaration.Range) captured.Definition
+        equal (lines |> Array.findIndex (fun text -> text.Contains("let seed", StringComparison.Ordinal))) declaration.Range.StartLine
+
     let checkNestedSequence (snapshot: EditorSnapshot) =
         let lines = (source nestedSequence).Split('\n')
         for name, expected in ["selected", "seq<int<m>>"; "inner", "seq<bool>"] do
@@ -265,7 +289,9 @@ output_kind = "library"
 
         let hover = session.TryHover(snapshot.Revision, file, selectedLine, 5) |> current
 
-        if name = "nested sequence element owners" then
+        if name = "captured sequence source identity" then
+            checkCapturedSequence snapshot
+        elif name = "nested sequence element owners" then
             checkNestedSequence snapshot
         elif name = "native seq source" then
             equal "seq<int<m>>" hover.Type
@@ -518,6 +544,7 @@ output_kind = "library"
             lexicalMathRepairs = lexicalMathRepairs
             loopCaptureSource = source loopCapture
             nestedSequenceSource = source nestedSequence
+            capturedSequenceSource = source capturedSequence
             directCaptures =
                 {|
                     source = directCaptures

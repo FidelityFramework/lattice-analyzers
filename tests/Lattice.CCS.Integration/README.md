@@ -66,6 +66,10 @@ Nested sequence owners retain independent `seq<int<m>>` and `seq<bool>` hovers.
 Mixed-dimension yields, scalar `yield!` operands and contradictory yield!-only
 delegations require exact CCS8040/CCS8003 form spans. Unsaved repairs restore both
 owner types; these remain source/type projections only.
+For a sequence capturing a local measured seed, the source `seq` token still
+projects `SeqExpr` and `seq<int<m>>`, not its internal generator formal. The
+captured reference resolves to the seed's compiler-projected source declaration;
+the factory keeps its `unit -> seq<int<m>>` signature.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.
