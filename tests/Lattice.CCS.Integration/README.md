@@ -53,6 +53,11 @@ An iteration-capturing lambda retains its `int -> unit` source signature; its
 captured `int` reference resolves to the loop's source identifier. Counted/range
 assignments require CCS8009 at the assigned value, and unsaved repair restores
 the signature and source definition.
+Unsupported computation bodies, seq bang bindings, yields inside ordinary
+lambdas and lexically shadowed `seq` forms require CCS8401 at their complete
+unsupported AST span. Repairs retain ordinary `Result.iter` and native `seq`
+source hovers. This checks source admission only, not general builder support,
+sequence-frame completion or sequence execution.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.

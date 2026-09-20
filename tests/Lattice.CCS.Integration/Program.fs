@@ -82,6 +82,7 @@ let accepted =
         "let choose = Result.defaultWith<int<m>, int<s>> (fun error -> error * 1<m> / 1<s>)\nlet selected = choose (Error 2<s>)"
         "Result.iter measured action",
         "let selected = Result.iter<int<m>, int<s>> (fun value -> ignore value) (Ok 2<m>)"
+        "native seq source", "let selected = seq { yield 1<m> }"
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -158,6 +159,14 @@ let rejected =
         "let selected =\n    for index = 1 to 3 do\n        index <- «9»\n    ()"
         "immutable loop range assignment", "CCS8009",
         "let selected =\n    for index in 1 .. 3 do\n        index <- «9»\n    ()"
+        "CE custom builder", "CCS8401",
+        "let builder value = value\nlet selected = builder «{\n    return true\n}»"
+        "CE seq let bang", "CCS8401",
+        "let selected = seq {\n    «let! value = true\n    yield value»\n}"
+        "CE seq lambda yield", "CCS8401",
+        "let selected = seq {\n    let work = fun () -> «yield 1»\n    yield 2\n}"
+        "CE lexical seq", "CCS8401",
+        "let seq value = not value\nlet selected = seq «{ yield true }»"
         "intrinsic Math.sin dimension", "CCS8040", "let selected = «Math.sin 1.0<m>»"
     ]
 
@@ -231,7 +240,9 @@ output_kind = "library"
 
         let hover = session.TryHover(snapshot.Revision, file, selectedLine, 5) |> current
 
-        if name = "loop capture source signature" then
+        if name = "native seq source" then
+            equal "seq<int<m>>" hover.Type
+        elif name = "loop capture source signature" then
             checkLoopCapture snapshot
         elif name = "integer range loop" then
             equal "unit" hover.Type
@@ -382,6 +393,19 @@ output_kind = "library"
         equal (Some expected) diagnostic.Range
         check (not (String.IsNullOrWhiteSpace diagnostic.Message)) "Compiler diagnostic lost its explanation"
         printfn "PASS CCS rejection: %s (%s, exact source range)" name code
+
+        if name.StartsWith("CE ", StringComparison.Ordinal) then
+            let repairName, expectedType =
+                if name = "CE custom builder" then "Result.iter measured action", "unit"
+                else "native seq source", "seq<int<m>>"
+            let _, body = accepted |> List.find (fun (acceptedName, _) -> acceptedName = repairName)
+            let text = source body
+            let restored = session.CheckAsync(Map.ofList [ file, text ]).Result |> current
+            validateSnapshot restored
+            check (restored.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error")) "CE repair retained an error"
+            let selectedLine = text.Split('\n') |> Array.findIndex (fun line -> line.StartsWith("let selected"))
+            equal expectedType (session.TryHover(restored.Revision, file, selectedLine, 5) |> current).Type
+            printfn "PASS CCS admitted source after unsaved repair: %s" name
 
         if name.StartsWith("Result.default", StringComparison.Ordinal) || name.StartsWith("Result.iter", StringComparison.Ordinal) then
             let operation = name.Split(' ')[0]
