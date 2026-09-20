@@ -46,6 +46,10 @@ Result defaults retain measured success types independently of the error type;
 Result arguments. `Result.iter` retains a unit result for its measured action.
 Wrong fallback/callback dimensions and nonunit actions require exact CCS8040 or
 CCS8003 spans; unsaved repairs restore the corresponding result and partial hovers.
+`Result.isOk` and `isError` project `bool`; their typed aliases retain independent
+success and error dimensions in the Result argument.
+Payload-dimension mismatches and predicate overapplication require exact
+CCS8040/CCS8003 spans; repairs restore bool results and alias payload signatures.
 Simple parenthesized integer ranges retain a unit result and an `int` induction
 reference hover. Floating, Boolean and measured bounds require CCS8003/CCS8040
 at the complete loop span, as in the compiler's `RangeLoopCases` fixtures.
