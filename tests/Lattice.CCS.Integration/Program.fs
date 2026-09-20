@@ -63,6 +63,15 @@ let accepted =
         "let choose = Option.iter\nlet first = choose (fun (value: int<m>) -> ignore value) (Some 2<m>)\nlet selected = choose (fun (value: int<s>) -> ignore value) (Some 3<s>)"
     ]
 
+// Lexical declarations own these names; neither is the dimensionless intrinsic.
+let lexicalMath =
+    [
+        "local Math module",
+        "module Math =\n    let sin (value: int<m>) = value\nlet selected = Math.sin 2<m>"
+        "local Math record",
+        "type Functions = { sin: int<m> -> int<m> }\nlet Math = { sin = fun value -> value }\nlet selected = Math.sin 2<m>"
+    ]
+
 // Markers identify the exact compiler diagnostic span; parser/project failures
 // or a different diagnostic do not count as rejecting the intended invalid case.
 let rejected =
@@ -97,6 +106,7 @@ let rejected =
         "direct capture explicit argument dimension",
         "CCS8040",
         "let selected =\n    let offset = 7<m>\n    let shift (value: int<m>) = offset + value\n    «shift 3<s>»"
+        "intrinsic Math.sin dimension", "CCS8040", "let selected = «Math.sin 1.0<m>»"
     ]
 
 [<EntryPoint>]
@@ -273,6 +283,22 @@ output_kind = "library"
         check (not (String.IsNullOrWhiteSpace diagnostic.Message)) "Compiler diagnostic lost its explanation"
         printfn "PASS CCS rejection: %s (%s, exact source range)" name code
 
+    // Repair the intrinsic error with real lexical definitions in unsaved source.
+    let lexicalMathRepairs =
+        lexicalMath
+        |> List.map (fun (name, body) ->
+            let text = source body
+            let snapshot = session.CheckAsync(Map.ofList [ file, text ]).Result |> current
+            validateSnapshot snapshot
+            check
+                (snapshot.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error"))
+                $"{name}: {snapshot.Diagnostics}"
+            let selectedLine = text.Split('\n') |> Array.findIndex (fun line -> line.StartsWith("let selected"))
+            let hover = session.TryHover(snapshot.Revision, file, selectedLine, 5) |> current
+            equal "int<m>" hover.Type
+            printfn "PASS CCS projection and unsaved repair: %s" name
+            {| name = name; source = text; revision = snapshot.Revision; result = hover.Type |})
+
     let repaired = session.CheckAsync(Map.empty).Result |> current
     validateSnapshot repaired
 
@@ -294,9 +320,10 @@ output_kind = "library"
         {|
             compiler = compilerPath
             compilerHash = compilerHash
-            accepted = accepted |> List.map fst
+            accepted = accepted @ lexicalMath |> List.map fst
             scope =
-                "Option and direct immutable capture projections through CCS.Editor; no analyzer rule or native execution claim"
+                "Option, direct immutable capture and lexical Math projections through CCS.Editor; no analyzer rule or native execution claim"
+            lexicalMathRepairs = lexicalMathRepairs
             directCaptures =
                 {|
                     source = directCaptures
