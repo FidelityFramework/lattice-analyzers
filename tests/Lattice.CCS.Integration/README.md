@@ -70,6 +70,12 @@ For a sequence capturing a local measured seed, the source `seq` token still
 projects `SeqExpr` and `seq<int<m>>`, not its internal generator formal. The
 captured reference resolves to the seed's compiler-projected source declaration;
 the factory keeps its `unit -> seq<int<m>>` signature.
+Measured `Seq.filter`/`map` and `Seq.collect`/`append` compositions retain their
+`seq<T>` binding and full-application result hovers. Generated operand snapshots
+cannot occupy these source positions; callback captures resolve to the original
+measured declaration. Wrong callback and delegation dimensions require exact
+CCS8040 spans, and unsaved repairs restore the result and definition projections.
+These checks establish compiler-to-editor parity, not sequence execution.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.

@@ -32,6 +32,12 @@ let nestedSequence =
 let capturedSequence =
     "let make () =\n    let seed = 1<m>\n    seq { yield seed }\nlet selected = make ()"
 
+let mappedSequence =
+    "let selected =\n    let threshold = 1<m>\n    let values = seq { yield 2<m> }\n    let filtered = Seq.filter (fun value -> value > threshold) values\n    Seq.map (fun value -> value + threshold) filtered"
+
+let collectedSequence =
+    "let selected =\n    let tail = seq { yield 3<s> }\n    let values = seq { yield 1<m> }\n    let collected = Seq.collect (fun (_: int<m>) -> seq { yield 2<s> }) values\n    Seq.append collected tail"
+
 // Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
 let directCaptures =
     """module DirectCaptures
@@ -95,6 +101,8 @@ let accepted =
         "native seq source", "let selected = seq { yield 1<m> }"
         "nested sequence element owners", nestedSequence
         "captured sequence source identity", capturedSequence
+        "Seq producer map/filter", mappedSequence
+        "Seq producer collect/append", collectedSequence
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -189,6 +197,10 @@ let rejected =
         "let selected = seq { «yield! 1» }"
         "Sequence conflicting delegations", "CCS8040",
         "let selected = seq { yield! seq { yield 1<m> }; «yield! seq { yield 2<s> }» }"
+        "Seq producer callback dimension", "CCS8040",
+        "let selected = «Seq.map (fun (value: int<m>) -> value) (seq { yield 1<s> })»"
+        "Seq producer delegation dimension", "CCS8040",
+        "let selected = seq { yield 1<m>; «yield! Seq.append (seq { yield 2<s> }) (seq { yield 3<s> })» }"
         "intrinsic Math.sin dimension", "CCS8040", "let selected = «Math.sin 1.0<m>»"
     ]
 
@@ -258,6 +270,36 @@ output_kind = "library"
             let column = lines[line].IndexOf(name, StringComparison.Ordinal)
             equal expected (session.TryHover(snapshot.Revision, file, line, column) |> current).Type
 
+    let checkSequenceProducer (snapshot: EditorSnapshot) (body: string) =
+        let lines = (source body).Split('\n')
+        let at (marker: string) (token: string) =
+            let line = lines |> Array.findIndex (fun text -> text.Contains(marker, StringComparison.Ordinal))
+            line, lines[line].IndexOf(token, StringComparison.Ordinal)
+        let hoverAt marker token =
+            let line, column = at marker token
+            session.TryHover(snapshot.Revision, file, line, column) |> current
+        let mapped = body = mappedSequence
+        let expected = if mapped then "seq<int<m>>" else "seq<int<s>>"
+        equal expected (hoverAt "let selected" "selected").Type
+        let applications =
+            if mapped then ["Seq.filter", " values"; "Seq.map", " filtered"]
+            else ["Seq.collect", " values"; "Seq.append", " tail"]
+        for operation, finalArgument in applications do
+            // The separating space belongs to the full call, outside its
+            // callee, earlier partial application and final argument tokens.
+            let result = hoverAt operation finalArgument
+            equal expected result.Type
+            equal None result.Name
+        if mapped then
+            let declaration = hoverAt "let threshold" "threshold"
+            let line, column = at "let threshold" "threshold"
+            equal { FilePath = file; StartLine = line; StartCharacter = column; EndLine = line; EndCharacter = column + "threshold".Length } declaration.Range
+            for operation in ["Seq.filter"; "Seq.map"] do
+                let captured = hoverAt operation "threshold"
+                equal "int<m>" captured.Type
+                equal "VarRef" captured.Kind
+                equal (Some declaration.Range) captured.Definition
+
     let checkLoopCapture (snapshot: EditorSnapshot) =
         let lines = (source loopCapture).Split('\n')
         let hoverAt (marker: string) (name: string) reference =
@@ -291,6 +333,8 @@ output_kind = "library"
 
         if name = "captured sequence source identity" then
             checkCapturedSequence snapshot
+        elif name.StartsWith("Seq producer ", StringComparison.Ordinal) then
+            checkSequenceProducer snapshot body
         elif name = "nested sequence element owners" then
             checkNestedSequence snapshot
         elif name = "native seq source" then
@@ -460,6 +504,14 @@ output_kind = "library"
             checkNestedSequence restored
             printfn "PASS CCS independent sequence element types after unsaved repair: %s" name
 
+        if name.StartsWith("Seq producer ", StringComparison.Ordinal) then
+            let body = if name = "Seq producer callback dimension" then mappedSequence else collectedSequence
+            let restored = session.CheckAsync(Map.ofList [ file, source body ]).Result |> current
+            validateSnapshot restored
+            check (restored.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error")) "Sequence producer repair retained an error"
+            checkSequenceProducer restored body
+            printfn "PASS CCS producer application results and source definitions after unsaved repair: %s" name
+
         if name.StartsWith("CE ", StringComparison.Ordinal) then
             let repairName, expectedType =
                 if name = "CE custom builder" then "Result.iter measured action", "unit"
@@ -545,6 +597,7 @@ output_kind = "library"
             loopCaptureSource = source loopCapture
             nestedSequenceSource = source nestedSequence
             capturedSequenceSource = source capturedSequence
+            sequenceProducerSources = [source mappedSequence; source collectedSequence]
             directCaptures =
                 {|
                     source = directCaptures
