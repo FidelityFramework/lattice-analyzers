@@ -87,6 +87,11 @@ their measured sequence types and original capture definitions after delegation
 elaboration. The source delegation keeps its exact range and unit-valued hover
 as the compiler's sequential wrapper. Generated iterator loops are compiler graph
 tests; these projections establish neither guarded execution nor exhaustion behavior.
+A guarded-yield while loop and captured lambda/lazy values inside a sequence
+retain measured result hovers, the lambda's source signature and original
+capture definitions. CCS tests own `SequenceEvaluation` edge incidence,
+including backedges and deferred-body boundaries. This gate adds no client
+evaluation model and does not establish native suspension behavior.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.
