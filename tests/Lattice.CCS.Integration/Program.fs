@@ -38,6 +38,12 @@ let mappedSequence =
 let collectedSequence =
     "let selected =\n    let tail = seq { yield 3<s> }\n    let values = seq { yield 1<m> }\n    let collected = Seq.collect (fun (_: int<m>) -> seq { yield 2<s> }) values\n    Seq.append collected tail"
 
+let guardedSequence =
+    "let selected =\n    let mutable observed = 1<m>\n    seq {\n        let inner = seq { yield true }\n        observed <- observed + 1<m>\n        if observed > 0<m> then\n            yield observed\n        let delegated = seq { yield observed }\n        yield! delegated\n    }"
+
+let effectOnlySequence =
+    "let selected =\n    let mutable touched = false\n    let empty: seq<unit> = seq { touched <- not touched }\n    empty"
+
 // Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
 let directCaptures =
     """module DirectCaptures
@@ -103,6 +109,8 @@ let accepted =
         "captured sequence source identity", capturedSequence
         "Seq producer map/filter", mappedSequence
         "Seq producer collect/append", collectedSequence
+        "Sequence ownership guarded delegation", guardedSequence
+        "Sequence ownership effect without yield", effectOnlySequence
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -189,6 +197,8 @@ let rejected =
         "let selected = seq {\n    «let! value = true\n    yield value»\n}"
         "CE seq lambda yield", "CCS8401",
         "let selected = seq {\n    let work = fun () -> «yield 1»\n    yield 2\n}"
+        "CE seq lazy yield", "CCS8401",
+        "let selected = seq {\n    let work = lazy («yield 1»)\n    yield 2\n}"
         "CE lexical seq", "CCS8401",
         "let seq value = not value\nlet selected = seq «{ yield true }»"
         "Sequence mixed yield dimensions", "CCS8040",
@@ -300,6 +310,32 @@ output_kind = "library"
                 equal "VarRef" captured.Kind
                 equal (Some declaration.Range) captured.Definition
 
+    let checkSequenceOwnership (snapshot: EditorSnapshot) (body: string) =
+        let lines = (source body).Split('\n')
+        let hoverAt (marker: string) (token: string) last =
+            let line = lines |> Array.findIndex (fun text -> text.Contains(marker, StringComparison.Ordinal))
+            let column = if last then lines[line].LastIndexOf(token, StringComparison.Ordinal) else lines[line].IndexOf(token, StringComparison.Ordinal)
+            session.TryHover(snapshot.Revision, file, line, column) |> current
+        let guarded = body = guardedSequence
+        let expected = if guarded then "seq<int<m>>" else "seq<unit>"
+        equal expected (hoverAt "let selected" "selected" false).Type
+        if guarded then
+            equal "seq<bool>" (hoverAt "let inner" "inner" false).Type
+            equal expected (hoverAt "let delegated" "delegated" false).Type
+            equal expected (hoverAt "yield! delegated" "delegated" true).Type
+        else
+            equal expected (hoverAt "let empty" "seq {" false).Type
+        let token, valueType, uses =
+            if guarded then "observed", "int<m>", ["if observed"; "yield observed"; "let delegated"]
+            else "touched", "bool", ["let empty"]
+        let declaration = hoverAt ("let mutable " + token) token false
+        equal valueType declaration.Type
+        for marker in uses do
+            let captured = hoverAt marker token true
+            equal valueType captured.Type
+            equal "VarRef" captured.Kind
+            equal (Some declaration.Range) captured.Definition
+
     let checkLoopCapture (snapshot: EditorSnapshot) =
         let lines = (source loopCapture).Split('\n')
         let hoverAt (marker: string) (name: string) reference =
@@ -335,6 +371,8 @@ output_kind = "library"
             checkCapturedSequence snapshot
         elif name.StartsWith("Seq producer ", StringComparison.Ordinal) then
             checkSequenceProducer snapshot body
+        elif name.StartsWith("Sequence ownership ", StringComparison.Ordinal) then
+            checkSequenceOwnership snapshot body
         elif name = "nested sequence element owners" then
             checkNestedSequence snapshot
         elif name = "native seq source" then
@@ -515,6 +553,7 @@ output_kind = "library"
         if name.StartsWith("CE ", StringComparison.Ordinal) then
             let repairName, expectedType =
                 if name = "CE custom builder" then "Result.iter measured action", "unit"
+                elif name = "CE seq lambda yield" || name = "CE seq lazy yield" then "Sequence ownership guarded delegation", "seq<int<m>>"
                 else "native seq source", "seq<int<m>>"
             let _, body = accepted |> List.find (fun (acceptedName, _) -> acceptedName = repairName)
             let text = source body
@@ -523,6 +562,7 @@ output_kind = "library"
             check (restored.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error")) "CE repair retained an error"
             let selectedLine = text.Split('\n') |> Array.findIndex (fun line -> line.StartsWith("let selected"))
             equal expectedType (session.TryHover(restored.Revision, file, selectedLine, 5) |> current).Type
+            if repairName = "Sequence ownership guarded delegation" then checkSequenceOwnership restored body
             printfn "PASS CCS admitted source after unsaved repair: %s" name
 
         if name.StartsWith("Result.default", StringComparison.Ordinal) || name.StartsWith("Result.iter", StringComparison.Ordinal) || name.StartsWith("Result.is", StringComparison.Ordinal) then
@@ -598,6 +638,7 @@ output_kind = "library"
             nestedSequenceSource = source nestedSequence
             capturedSequenceSource = source capturedSequence
             sequenceProducerSources = [source mappedSequence; source collectedSequence]
+            sequenceOwnershipSources = [source guardedSequence; source effectOnlySequence]
             directCaptures =
                 {|
                     source = directCaptures

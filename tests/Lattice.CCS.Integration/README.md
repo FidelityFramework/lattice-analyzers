@@ -76,6 +76,12 @@ cannot occupy these source positions; callback captures resolve to the original
 measured declaration. Wrong callback and delegation dimensions require exact
 CCS8040 spans, and unsaved repairs restore the result and definition projections.
 These checks establish compiler-to-editor parity, not sequence execution.
+Ownership projections cover nested sequences, guarded effects and delegation,
+plus an effectful `seq<unit>` body with no yield. Captured mutable reads navigate
+to their original declarations. A yield escaping into an ordinary lambda or lazy
+body requires CCS8401 at the yield form; repair restores the owner types and
+source definitions. Raw suspension-hyperedge incidence is checked by CCS tests;
+this gate reads the public source projections without adding an editor graph API.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.
