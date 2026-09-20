@@ -13,7 +13,7 @@ let Setup () =
     task {
         let! opts =
             mkOptionsFromProject
-                "net8.0"
+                "net10.0"
                 [
                     {
                         Name = "FSharp.Compiler.Service"

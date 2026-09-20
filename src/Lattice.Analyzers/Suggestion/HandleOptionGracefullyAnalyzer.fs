@@ -31,7 +31,7 @@ let analyze (typedTree: FSharpImplementationFileContents option) =
                     messages.Add
                         {
                             Type = "HandleOptionGracefully"
-                            Message = "Replace unsafe option unwrapping with graceful handling of each case."
+                            Message = "Handle both cases instead of unwrapping a potentially absent option value."
                             Code = "IONIDE-006"
                             Severity = Severity.Warning
                             Range = m
@@ -50,7 +50,7 @@ let name = "HandleOptionGracefullyAnalyzer"
 
 [<Literal>]
 let shortDescription =
-    "Replace unsafe option unwrapping with graceful handling of each case."
+    "Handle both cases instead of unwrapping a potentially absent option value."
 
 [<Literal>]
 let helpUri = "https://ionide.io/ionide-analyzers/suggestion/006.html"

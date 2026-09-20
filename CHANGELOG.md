@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+* Align analyzer fixture targets, generated test templates and CI paths with the .NET 10 projects, and align the analyzer CLI with SDK `0.35.0`.
+* Describe option unwrapping as potentially absent handling; retain `IONIDE-006` and add resolved-symbol, fallback and no-automatic-fix regressions.
+
+### Added
+
+* A separate CCS.Editor Option projection gate covering dimensional diagnostics, source ranges and immutable snapshot invalidation, with links to the LSP and native execution gates.
+
 ## 0.14.10 - 2025-11-11
 
 ### Fixed 
