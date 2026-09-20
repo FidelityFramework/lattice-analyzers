@@ -32,6 +32,10 @@ existing CCS8040/CCS8003 errors at their exact source spans.
 `Option.iter` checks unit results, a measured partial-action signature and one
 bare alias used at two dimensions, with exact rejection of nonunit callback results,
 wrong argument dimensions, nonoption inputs and nonfunction callbacks.
+`Option.fold` and `Option.foldBack` keep state and payload dimensions independent,
+including explicit state/payload type arguments and bare aliases. Their partial
+hovers expose the remaining option or state argument respectively; invalid
+callback state, payload and result types require exact compiler diagnostics.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.

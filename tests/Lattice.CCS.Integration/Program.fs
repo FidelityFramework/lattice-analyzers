@@ -61,6 +61,12 @@ let accepted =
         "let choose = Option.iter (fun (value: int<m>) -> ignore value)\nlet selected = choose None"
         "iter bare generic alias",
         "let choose = Option.iter\nlet first = choose (fun (value: int<m>) -> ignore value) (Some 2<m>)\nlet selected = choose (fun (value: int<s>) -> ignore value) (Some 3<s>)"
+        "fold partial independent dimensions",
+        "let choose = Option.fold<int<m>, int<s>> (fun state value -> state) 1<m>\nlet selected = choose (Some 2<s>)"
+        "foldBack partial independent dimensions",
+        "let choose = Option.foldBack<int<m>, int<s>> (fun value state -> state) (Some 2<s>)\nlet selected = choose 1<m>"
+        "fold bare aliases",
+        "let forward = Option.fold\nlet backward = Option.foldBack\nlet first = forward (fun (state: int<m>) (_: int<s>) -> state) 1<m> (Some 2<s>)\nlet selected = backward (fun (_: int<s>) (state: int<m>) -> state) (Some 3<s>) first"
     ]
 
 // Lexical declarations own these names; neither is the dimensionless intrinsic.
@@ -106,6 +112,12 @@ let rejected =
         "direct capture explicit argument dimension",
         "CCS8040",
         "let selected =\n    let offset = 7<m>\n    let shift (value: int<m>) = offset + value\n    «shift 3<s>»"
+        "fold callback state dimension", "CCS8040",
+        "let selected = «Option.fold (fun (state: int<m>) (_: int<s>) -> state) 1<s>» None"
+        "foldBack callback payload dimension", "CCS8040",
+        "let selected = «Option.foldBack (fun (_: int<s>) (state: int<m>) -> state) (Some 2<m>)» 1<m>"
+        "fold callback result dimension", "CCS8040",
+        "let selected = «Option.fold (fun (state: int<m>) (_: int<s>) -> 1<s>)» 1<m> None"
         "intrinsic Math.sin dimension", "CCS8040", "let selected = «Math.sin 1.0<m>»"
     ]
 
@@ -179,6 +191,14 @@ output_kind = "library"
             if name.Contains("partial", StringComparison.Ordinal) then
                 let partial = session.TryHover(snapshot.Revision, file, 3, 5) |> current
                 equal "int<m> option -> int<m> option" partial.Type
+
+        if name.StartsWith("fold", StringComparison.Ordinal) then
+            equal "int<m>" hover.Type
+
+            if name.Contains("partial", StringComparison.Ordinal) then
+                let partial = session.TryHover(snapshot.Revision, file, 3, 5) |> current
+                let expected = if name.StartsWith("foldBack", StringComparison.Ordinal) then "int<m> -> int<m>" else "int<s> option -> int<m>"
+                equal expected partial.Type
 
         printfn "PASS CCS projection: %s" name
 
