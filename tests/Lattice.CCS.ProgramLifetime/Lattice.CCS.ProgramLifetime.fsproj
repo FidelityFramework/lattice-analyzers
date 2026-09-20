@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <OtherFlags></OtherFlags>
+    <ComposerRoot Condition="'$(ComposerRoot)' == ''">$(MSBuildThisFileDirectory)../../../Composer</ComposerRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ComposerRoot)/tests/Infrastructure/ProgramLifetimeProjection.fs" Link="ProgramLifetimeProjection.fs" />
+    <Compile Include="Program.fs" />
+    <PackageReference Include="FSharp.Core" Version="10.1.401" />
+    <ProjectReference Include="$(ComposerRoot)/src/CCS.Editor/CCS.Editor.fsproj" />
+  </ItemGroup>
+</Project>

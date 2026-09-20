@@ -65,6 +65,30 @@ let countedSequence =
 let consumedSequence =
     "let selected =\n    for item in seq { yield 1<m> } do\n        ignore item\n    ()"
 
+let sequenceIter =
+    "let action (value: int<m>) = ignore value\nlet selected = seq { yield 1<m>; yield 2<m> } |> Seq.iter action"
+
+let sequenceTake =
+    "let selected = seq { yield 1<m>; yield 2<m> } |> Seq.take 1"
+
+let sequenceFold =
+    "let folder (state: int<s>) (value: int<m>) = ignore value; state + 1<s>\nlet selected = seq { yield 1<m>; yield 2<m> } |> Seq.fold<int<s>, int<m>> folder 0<s>"
+
+let sequenceExists =
+    "let predicate (value: int<m>) = value > 0<m>\nlet selected = seq { yield 1<m>; yield 2<m> } |> Seq.exists<int<m>> predicate"
+
+let sequenceForall =
+    "let predicate (value: int<s>) = value <= 3<s>\nlet selected = seq { yield 1<s>; yield 2<s> } |> Seq.forall<int<s>> predicate"
+
+let sequenceTryHead =
+    "let selected = seq { yield 1<m>; yield 2<m> } |> Seq.tryHead<int<m>>"
+
+let sequenceEmptyHead =
+    "let selected = seq { if false then yield 1<s> } |> Seq.tryHead<int<s>>"
+
+let sequenceTryPick =
+    "let chooser (value: int<m>) = if value > 1<m> then Some 2<s> else None\nlet selected = seq { yield 1<m>; yield 2<m> } |> Seq.tryPick<int<m>, int<s>> chooser"
+
 // Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
 let directCaptures =
     """module DirectCaptures
@@ -139,6 +163,14 @@ let accepted =
         "Sequence continuation local captures", nestedLocalSequence
         "Sequence continuation counted body", countedSequence
         "Sequence continuation consumption", consumedSequence
+        "Seq consumer iter pipeline", sequenceIter
+        "Seq consumer take pipeline", sequenceTake
+        "Seq consumer fold independent state", sequenceFold
+        "Seq consumer exists measured predicate", sequenceExists
+        "Seq consumer forall measured predicate", sequenceForall
+        "Seq consumer tryHead measured result", sequenceTryHead
+        "Seq consumer tryHead empty result", sequenceEmptyHead
+        "Seq consumer tryPick independent result", sequenceTryPick
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -241,6 +273,28 @@ let rejected =
         "let selected = «Seq.map (fun (value: int<m>) -> value) (seq { yield 1<s> })»"
         "Seq producer delegation dimension", "CCS8040",
         "let selected = seq { yield 1<m>; «yield! Seq.append (seq { yield 2<s> }) (seq { yield 3<s> })» }"
+        "Seq consumer take count kind", "CCS8003",
+        "let selected = «Seq.take true» (seq { yield 1<m> })"
+        "Seq consumer iter callback result", "CCS8003",
+        "let selected = «Seq.iter (fun (value: int<m>) -> value)» (seq { yield 1<m> })"
+        "Seq consumer iter payload dimension", "CCS8040",
+        "let selected = «Seq.iter (fun (_: int<s>) -> ()) (seq { yield 1<m> })»"
+        "Seq consumer fold callback result", "CCS8040",
+        "let selected = «Seq.fold (fun (_: int<s>) (_: int<m>) -> 1<m>)» 0<s> (seq { yield 1<m> })"
+        "Seq consumer exists predicate result", "CCS8003",
+        "let selected = «Seq.exists (fun (value: int<m>) -> value)» (seq { yield 1<m> })"
+        "Seq consumer exists payload dimension", "CCS8040",
+        "let selected = «Seq.exists (fun (_: int<s>) -> true) (seq { yield 1<m> })»"
+        "Seq consumer forall predicate result", "CCS8003",
+        "let selected = «Seq.forall (fun (value: int<s>) -> value)» (seq { yield 1<s> })"
+        "Seq consumer forall payload dimension", "CCS8040",
+        "let selected = «Seq.forall (fun (_: int<m>) -> true) (seq { yield 1<s> })»"
+        "Seq consumer tryHead payload dimension", "CCS8040",
+        "let selected = «Seq.tryHead<int<m>> (seq { yield 1<s> })»"
+        "Seq consumer tryPick payload dimension", "CCS8040",
+        "let selected = «Seq.tryPick (fun (_: int<s>) -> Some 1<m>) (seq { yield 1<m> })»"
+        "Seq consumer tryPick callback result", "CCS8003",
+        "let selected = «Seq.tryPick (fun (value: int<m>) -> value)» (seq { yield 1<m> })"
         "intrinsic Math.sin dimension", "CCS8040", "let selected = «Math.sin 1.0<m>»"
     ]
 
@@ -337,7 +391,7 @@ output_kind = "library"
             for operation in ["Seq.filter"; "Seq.map"] do
                 let captured = hoverAt operation "threshold"
                 equal "int<m>" captured.Type
-                equal "VarRef" captured.Kind
+                equal "EnvironmentRead" captured.Kind
                 equal (Some declaration.Range) captured.Definition
 
     let checkSequenceOwnership (snapshot: EditorSnapshot) (body: string) =
@@ -435,6 +489,25 @@ output_kind = "library"
         let column = lines[line].IndexOf("index", StringComparison.Ordinal)
         equal (Some { FilePath = file; StartLine = line; StartCharacter = column; EndLine = line; EndCharacter = column + "index".Length }) capture.Definition
 
+    let checkSequenceConsumer (snapshot: EditorSnapshot) (body: string) =
+        let lines = (source body).Split('\n')
+        let binding name =
+            let line = lines |> Array.findIndex (fun text -> text.StartsWith("let " + name, StringComparison.Ordinal))
+            session.TryHover(snapshot.Revision, file, line, 5) |> current
+        let expected =
+            if body = sequenceIter then "unit"
+            elif body = sequenceTake then "seq<int<m>>"
+            elif body = sequenceExists || body = sequenceForall then "bool"
+            elif body = sequenceTryHead then "int<m> option"
+            elif body = sequenceEmptyHead || body = sequenceTryPick then "int<s> option"
+            else "int<s>"
+        equal expected (binding "selected").Type
+        if body = sequenceIter then equal "int<m> -> unit" (binding "action").Type
+        if body = sequenceFold then equal "int<s> -> int<m> -> int<s>" (binding "folder").Type
+        if body = sequenceExists then equal "int<m> -> bool" (binding "predicate").Type
+        if body = sequenceForall then equal "int<s> -> bool" (binding "predicate").Type
+        if body = sequenceTryPick then equal "int<m> -> int<s> option" (binding "chooser").Type
+
     let checkSequenceContinuation (snapshot: EditorSnapshot) (body: string) =
         let lines = (source body).Split('\n')
         let at (marker: string) (token: string) =
@@ -496,6 +569,8 @@ output_kind = "library"
             checkCapturedSequence snapshot
         elif name.StartsWith("Seq producer ", StringComparison.Ordinal) then
             checkSequenceProducer snapshot body
+        elif name.StartsWith("Seq consumer ", StringComparison.Ordinal) then
+            checkSequenceConsumer snapshot body
         elif name.StartsWith("Sequence ownership ", StringComparison.Ordinal) then
             checkSequenceOwnership snapshot body
         elif name.StartsWith("Delegation ", StringComparison.Ordinal) then
@@ -666,6 +741,21 @@ output_kind = "library"
         check (not (String.IsNullOrWhiteSpace diagnostic.Message)) "Compiler diagnostic lost its explanation"
         printfn "PASS CCS rejection: %s (%s, exact source range)" name code
 
+        if name.StartsWith("Seq consumer ", StringComparison.Ordinal) then
+            let body =
+                if name.Contains("take", StringComparison.Ordinal) then sequenceTake
+                elif name.Contains("fold", StringComparison.Ordinal) then sequenceFold
+                elif name.Contains("exists", StringComparison.Ordinal) then sequenceExists
+                elif name.Contains("forall", StringComparison.Ordinal) then sequenceForall
+                elif name.Contains("tryHead", StringComparison.Ordinal) then sequenceTryHead
+                elif name.Contains("tryPick", StringComparison.Ordinal) then sequenceTryPick
+                else sequenceIter
+            let restored = session.CheckAsync(Map.ofList [file, source body]).Result |> current
+            validateSnapshot restored
+            check (restored.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error")) "Sequence consumer repair retained an error"
+            checkSequenceConsumer restored body
+            printfn "PASS CCS sequence consumer source signatures after unsaved repair: %s" name
+
         if name = "Sequence consumption scalar input" then
             let restored = session.CheckAsync(Map.ofList [file, source consumedSequence]).Result |> current
             validateSnapshot restored
@@ -780,6 +870,7 @@ output_kind = "library"
             delegationSources = [source effectfulDelegation; source nestedDelegation]
             sequenceEvaluationSources = [source loopingSequence; source deferredSequence]
             sequenceContinuationSources = [source nestedLocalSequence; source countedSequence; source consumedSequence]
+            sequenceConsumerSources = [source sequenceIter; source sequenceTake; source sequenceFold; source sequenceExists; source sequenceForall; source sequenceTryHead; source sequenceEmptyHead; source sequenceTryPick]
             directCaptures =
                 {|
                     source = directCaptures
