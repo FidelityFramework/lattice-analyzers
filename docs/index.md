@@ -8,6 +8,27 @@ does not introduce an alternative checker or weaken the native Clef compilation 
 
 ## Concrete analysis slots
 
+### Target-aware compiler obligations — planned 2026-09-20
+
+[Composer M-01 §5](../../Composer/docs/PRDs/M-01-DialectAdmission.md#5-numeric-selection-parallelism-and-design-time-projection)
+maps Numeric Selection, RPC wait classification and Scheduler Contract to
+compiler and editor acceptance. Add regression purposes for unsupported numeric
+operations/modes, invalid reassociation, partial-sum overflow despite a fitting
+final result, unresolved wait order and unavailable supervision recovery.
+Required checks belong in Baker/CCS with graph participants and target premise
+provenance. A may-wait cycle without feasibility evidence is not a proved
+deadlock; an unresolved numeric obligation is not a proved counterexample.
+
+The shared projection must retain the selected target, evidence status and
+dependency invalidation. Optional advice cannot weaken representation selection,
+arithmetic guarantees or scheduler requirements for speed. Test exact compiler
+codes/spans and unsaved repair through the active Lattice service; do not add
+semantic inference to the inherited analyzer SDK. These are planned cases,
+with implementation evidence recorded in the
+[waypoints](../../Composer/docs/Language_Coverage_Waypoints.md).
+
+### Existing migration rules
+
 This repository records useful rule purposes, their prerequisites and regression cases. The inherited FCS
 SDK execution path is retired for Clef integration; the repository and the ambition for proof-aware analysis
 remain useful. Type resolution and Baker carry and settle information before a consumer asks to display it.
