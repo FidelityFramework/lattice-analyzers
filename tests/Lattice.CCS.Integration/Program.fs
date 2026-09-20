@@ -23,6 +23,23 @@ let prelude = "module OptionCorpus\n[<Measure>] type m\n[<Measure>] type s\n"
 let source body =
     prelude + body + "\n[<EntryPoint>]\nlet main _ = ignore selected; 0\n"
 
+// Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
+let directCaptures =
+    """module DirectCaptures
+[<Measure>] type m
+[<Measure>] type s
+[<EntryPoint>]
+let main _ =
+    let offset = 7<m>
+    let shift (value: int<m>) = offset + value
+    let plain (value: int<m>) = value
+    let make () = fun (value: int<m>) -> offset + value
+    let shifted = shift 3<m>
+    let unchanged = plain 10<m>
+    let produced = make () 3<m>
+    if shifted = unchanged && produced = 10<m> then 0 else 1
+"""
+
 let accepted =
     [
         "eager fallback", "let selected = Option.defaultValue 1<m> (Some 2<m>)"
@@ -47,24 +64,27 @@ let rejected =
         "thunk argument", "CCS8003", "let selected = «Option.defaultWith (fun (_: int<m>) -> 1<m>)» None"
         "missing thunk", "CCS8003", "let selected = «Option.defaultWith 1<m>» None"
         "fractional dimension rejected", "CCS8048", "let selected = Option.defaultWith<float<«m^(1/2)»>>"
+        "direct capture explicit argument dimension",
+        "CCS8040",
+        "let selected =\n    let offset = 7<m>\n    let shift (value: int<m>) = offset + value\n    «shift 3<s>»"
     ]
 
 [<EntryPoint>]
 let main _ =
     let root =
-        Path.Combine(Path.GetTempPath(), "lattice-ccs-options-" + Guid.NewGuid().ToString("N"))
+        Path.Combine(Path.GetTempPath(), "lattice-ccs-surface-" + Guid.NewGuid().ToString("N"))
 
     Directory.CreateDirectory root |> ignore
-    let file = Path.Combine(root, "Options.clef").Replace('\\', '/')
-    let project = Path.Combine(root, "Options.fidproj")
+    let file = Path.Combine(root, "Surface.clef").Replace('\\', '/')
+    let project = Path.Combine(root, "Surface.fidproj")
 
     let manifest =
         """[package]
-name = "lattice-option-corpus"
+name = "lattice-compiler-surface-corpus"
 [compilation]
 target = "library"
 [build]
-sources = ["Options.clef"]
+sources = ["Surface.clef"]
 output_kind = "library"
 """
 
@@ -106,6 +126,61 @@ output_kind = "library"
         check (hover.Type.Contains("m")) $"{name}: lost dimensional type {hover.Type}"
         printfn "PASS CCS projection: %s" name
 
+    let captureSnapshot =
+        session.CheckAsync(Map.ofList [ file, directCaptures ]).Result |> current
+
+    validateSnapshot captureSnapshot
+
+    check
+        (captureSnapshot.Diagnostics
+         |> List.forall (fun d -> d.EffectiveSeverity <> "Error"))
+        $"Direct capture fixture has errors: {captureSnapshot.Diagnostics}"
+
+    let lines = directCaptures.Split('\n')
+
+    let captureHover (marker: string) (name: string) reference =
+        let line =
+            lines
+            |> Array.findIndex (fun text -> text.Contains(marker, StringComparison.Ordinal))
+
+        let column =
+            if reference then
+                lines[line].LastIndexOf(name, StringComparison.Ordinal)
+            else
+                lines[line].IndexOf(name, StringComparison.Ordinal)
+
+        session.TryHover(captureSnapshot.Revision, file, line, column) |> current
+
+    let captureSignatures =
+        [
+            "shift", "int<m> -> int<m>", "let shift", "let shifted = shift"
+            "plain", "int<m> -> int<m>", "let plain", "let unchanged = plain"
+            "make", "unit -> int<m> -> int<m>", "let make", "let produced = make"
+        ]
+        |> List.map (fun (name, signature, declaration, reference) ->
+            let defined = captureHover declaration name false
+            let used = captureHover reference name true
+            equal signature defined.Type
+            equal signature used.Type
+            equal "VarRef" used.Kind
+            equal defined.Range (used.Definition |> current)
+
+            {|
+                name = name
+                signature = signature
+                declaration = defined.Range
+                reference = used.Range
+            |}
+        )
+
+    let produced = captureHover "let produced" "produced" false
+    equal "int<m>" produced.Type
+    let offsetDeclaration = captureHover "let offset" "offset" false
+    let capturedOffset = captureHover "let shift" "offset" true
+    equal "int<m>" capturedOffset.Type
+    equal offsetDeclaration.Range (capturedOffset.Definition |> current)
+    printfn "PASS CCS projection: direct capture source signatures, captureless control and returned function result"
+
     for name, code, marked in rejected do
         let start = marked.IndexOf('«')
         let finish = marked.IndexOf('»')
@@ -139,6 +214,12 @@ output_kind = "library"
             snapshot.Diagnostics
             |> List.filter (fun d -> d.Code = code && d.EffectiveSeverity = "Error")
 
+        equal
+            1
+            (snapshot.Diagnostics
+             |> List.filter (fun d -> d.EffectiveSeverity = "Error")
+             |> List.length)
+
         equal 1 diagnostics.Length
         let diagnostic = diagnostics.Head
         equal "Error" diagnostic.Severity
@@ -168,6 +249,16 @@ output_kind = "library"
             compiler = compilerPath
             compilerHash = compilerHash
             accepted = accepted |> List.map fst
+            scope =
+                "Option and direct immutable capture projections through CCS.Editor; no analyzer rule or native execution claim"
+            directCaptures =
+                {|
+                    source = directCaptures
+                    revision = captureSnapshot.Revision
+                    signatures = captureSignatures
+                    capturedDefinition = capturedOffset.Definition
+                    result = produced.Type
+                |}
             rejected = rejected |> List.map (fun (name, code, _) -> {| name = name; code = code |})
             firstRevision = first.Revision
             finalRevision = repaired.Revision
