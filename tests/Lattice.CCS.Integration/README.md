@@ -44,6 +44,10 @@ require CCS8040 at the exact application span.
 Simple parenthesized integer ranges retain a unit result and an `int` induction
 reference hover. Floating, Boolean and measured bounds require CCS8003/CCS8040
 at the complete loop span, as in the compiler's `RangeLoopCases` fixtures.
+An iteration-capturing lambda retains its `int -> unit` source signature; its
+captured `int` reference resolves to the loop's source identifier. Counted/range
+assignments require CCS8009 at the assigned value, and unsaved repair restores
+the signature and source definition.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.

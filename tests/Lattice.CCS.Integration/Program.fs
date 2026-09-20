@@ -23,6 +23,9 @@ let prelude = "module OptionCorpus\n[<Measure>] type m\n[<Measure>] type s\n"
 let source body =
     prelude + body + "\n[<EntryPoint>]\nlet main _ = ignore selected; 0\n"
 
+let loopCapture =
+    "let selected =\n    for index = 1 to 2 do\n        let visit = fun (value: int) -> ignore (index + value)\n        visit 0\n    ()"
+
 // Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
 let directCaptures =
     """module DirectCaptures
@@ -75,6 +78,7 @@ let accepted =
         "[<Measure>] type kg\nlet selected = Result.bind<int<m>, int<kg>, int<s>> (fun _ -> Ok 1<kg>) (Ok 2<m>)"
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
+        "loop capture source signature", loopCapture
     ]
 
 // Lexical declarations own these names; neither is the dimensionless intrinsic.
@@ -138,6 +142,10 @@ let rejected =
         "let selected =\n    «for index in true .. 1 do ignore index»\n    ()"
         "range loop measured bound", "CCS8040",
         "let selected =\n    «for index in 1<m> .. 3 do ignore index»\n    ()"
+        "immutable loop counted assignment", "CCS8009",
+        "let selected =\n    for index = 1 to 3 do\n        index <- «9»\n    ()"
+        "immutable loop range assignment", "CCS8009",
+        "let selected =\n    for index in 1 .. 3 do\n        index <- «9»\n    ()"
         "intrinsic Math.sin dimension", "CCS8040", "let selected = «Math.sin 1.0<m>»"
     ]
 
@@ -180,6 +188,21 @@ output_kind = "library"
     validateSnapshot first
     let firstText = JsonSerializer.Serialize first
 
+    let checkLoopCapture (snapshot: EditorSnapshot) =
+        let lines = (source loopCapture).Split('\n')
+        let hoverAt (marker: string) (name: string) reference =
+            let line = lines |> Array.findIndex (fun text -> text.Contains(marker, StringComparison.Ordinal))
+            let column = if reference then lines[line].LastIndexOf(name, StringComparison.Ordinal) else lines[line].IndexOf(name, StringComparison.Ordinal)
+            session.TryHover(snapshot.Revision, file, line, column) |> current
+        equal "unit" (hoverAt "let selected" "selected" false).Type
+        equal "int -> unit" (hoverAt "let visit" "visit" false).Type
+        equal "int -> unit" (hoverAt "visit 0" "visit" true).Type
+        let capture = hoverAt "let visit" "index" true
+        equal "int" capture.Type
+        let line = lines |> Array.findIndex (fun text -> text.Contains("for index", StringComparison.Ordinal))
+        let column = lines[line].IndexOf("index", StringComparison.Ordinal)
+        equal (Some { FilePath = file; StartLine = line; StartCharacter = column; EndLine = line; EndCharacter = column + "index".Length }) capture.Definition
+
     for name, body in accepted do
         let snapshot =
             session.CheckAsync(Map.ofList [ file, source body ]).Result |> current
@@ -196,7 +219,9 @@ output_kind = "library"
 
         let hover = session.TryHover(snapshot.Revision, file, selectedLine, 5) |> current
 
-        if name = "integer range loop" then
+        if name = "loop capture source signature" then
+            checkLoopCapture snapshot
+        elif name = "integer range loop" then
             equal "unit" hover.Type
             let lines = (prelude + body).Split('\n')
             let loopLine = lines |> Array.findIndex (fun line -> line.Contains("for index", StringComparison.Ordinal))
@@ -339,6 +364,14 @@ output_kind = "library"
         check (not (String.IsNullOrWhiteSpace diagnostic.Message)) "Compiler diagnostic lost its explanation"
         printfn "PASS CCS rejection: %s (%s, exact source range)" name code
 
+        if name.StartsWith("immutable loop", StringComparison.Ordinal) then
+            check (diagnostic.Message.Contains("not found or not mutable", StringComparison.Ordinal)) "Loop assignment lost its immutable-binding explanation"
+            let restored = session.CheckAsync(Map.ofList [ file, source loopCapture ]).Result |> current
+            validateSnapshot restored
+            check (restored.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error")) "Loop capture repair retained an error"
+            checkLoopCapture restored
+            printfn "PASS CCS loop signature and source definition after unsaved repair: %s" name
+
     // Repair the intrinsic error with real lexical definitions in unsaved source.
     let lexicalMathRepairs =
         lexicalMath
@@ -380,6 +413,7 @@ output_kind = "library"
             scope =
                 "Option/Result, integer ranges, direct immutable capture and lexical Math projections through CCS.Editor; no analyzer rule or native execution claim"
             lexicalMathRepairs = lexicalMathRepairs
+            loopCaptureSource = source loopCapture
             directCaptures =
                 {|
                     source = directCaptures
