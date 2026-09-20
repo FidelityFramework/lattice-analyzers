@@ -56,6 +56,15 @@ let loopingSequence =
 let deferredSequence =
     "let selected =\n    let evaluationSeed = 4<m>\n    seq {\n        let sample = fun () -> evaluationSeed\n        let delayedValue = lazy (evaluationSeed)\n        yield sample ()\n        yield Lazy.force delayedValue\n    }"
 
+let nestedLocalSequence =
+    "let selected = seq {\n    let localSeed = 1<m>\n    let mutable localFlag = true\n    let localChild = seq {\n        yield localSeed\n        if localFlag then yield localSeed\n    }\n    yield! localChild\n}"
+
+let countedSequence =
+    "let selected = seq {\n    for ascending in 1 .. 2 do\n        yield ascending\n    for descending = 2 downto 1 do\n        yield descending\n}"
+
+let consumedSequence =
+    "let selected =\n    for item in seq { yield 1<m> } do\n        ignore item\n    ()"
+
 // Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
 let directCaptures =
     """module DirectCaptures
@@ -127,6 +136,9 @@ let accepted =
         "Delegation nested producers", nestedDelegation
         "Sequence evaluation guarded loop", loopingSequence
         "Sequence evaluation deferred captures", deferredSequence
+        "Sequence continuation local captures", nestedLocalSequence
+        "Sequence continuation counted body", countedSequence
+        "Sequence continuation consumption", consumedSequence
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -223,6 +235,8 @@ let rejected =
         "let selected = seq { «yield! 1» }"
         "Sequence conflicting delegations", "CCS8040",
         "let selected = seq { yield! seq { yield 1<m> }; «yield! seq { yield 2<s> }» }"
+        "Sequence consumption scalar input", "CCS8003",
+        "let selected =\n    «for item in 1 do ()»\n    ()"
         "Seq producer callback dimension", "CCS8040",
         "let selected = «Seq.map (fun (value: int<m>) -> value) (seq { yield 1<s> })»"
         "Seq producer delegation dimension", "CCS8040",
@@ -421,6 +435,47 @@ output_kind = "library"
         let column = lines[line].IndexOf("index", StringComparison.Ordinal)
         equal (Some { FilePath = file; StartLine = line; StartCharacter = column; EndLine = line; EndCharacter = column + "index".Length }) capture.Definition
 
+    let checkSequenceContinuation (snapshot: EditorSnapshot) (body: string) =
+        let lines = (source body).Split('\n')
+        let at (marker: string) (token: string) =
+            let line = lines |> Array.findIndex (fun text -> text.Contains(marker, StringComparison.Ordinal))
+            let column = lines[line].IndexOf(token, StringComparison.Ordinal)
+            check (column >= 0) $"Missing source token {token} at {marker}"
+            line, column
+        let hoverAt marker token =
+            let line, column = at marker token
+            session.TryHover(snapshot.Revision, file, line, column) |> current
+        let expected =
+            if body = nestedLocalSequence then "seq<int<m>>"
+            elif body = countedSequence then "seq<int>"
+            else "unit"
+        equal expected (hoverAt "let selected" "selected").Type
+        if body = nestedLocalSequence then
+            equal "seq<int<m>>" (hoverAt "let localChild" "localChild").Type
+            for token, kind, declarationMarker, uses in
+                ["localSeed", "int<m>", "let localSeed", ["yield localSeed"; "if localFlag"]
+                 "localFlag", "bool", "let mutable localFlag", ["if localFlag"]] do
+                let declaration = hoverAt declarationMarker token
+                equal kind declaration.Type
+                for marker in uses do
+                    let captured = hoverAt marker token
+                    equal kind captured.Type
+                    equal "VarRef" captured.Kind
+                    equal (Some declaration.Range) captured.Definition
+        else
+            let references =
+                if body = countedSequence then
+                    ["ascending", "for ascending", "yield ascending", "int"
+                     "descending", "for descending", "yield descending", "int"]
+                else ["item", "for item", "ignore item", "int<m>"]
+            for token, declaration, useMarker, kind in references do
+                let line, column = at declaration token
+                let used = hoverAt useMarker token
+                equal kind used.Type
+                equal "VarRef" used.Kind
+                equal (Some { FilePath = file; StartLine = line; StartCharacter = column
+                              EndLine = line; EndCharacter = column + token.Length }) used.Definition
+
     for name, body in accepted do
         let snapshot =
             session.CheckAsync(Map.ofList [ file, source body ]).Result |> current
@@ -447,6 +502,8 @@ output_kind = "library"
             checkDelegation snapshot body
         elif name.StartsWith("Sequence evaluation ", StringComparison.Ordinal) then
             checkSequenceEvaluation snapshot body
+        elif name.StartsWith("Sequence continuation ", StringComparison.Ordinal) then
+            checkSequenceContinuation snapshot body
         elif name = "nested sequence element owners" then
             checkNestedSequence snapshot
         elif name = "native seq source" then
@@ -609,6 +666,13 @@ output_kind = "library"
         check (not (String.IsNullOrWhiteSpace diagnostic.Message)) "Compiler diagnostic lost its explanation"
         printfn "PASS CCS rejection: %s (%s, exact source range)" name code
 
+        if name = "Sequence consumption scalar input" then
+            let restored = session.CheckAsync(Map.ofList [file, source consumedSequence]).Result |> current
+            validateSnapshot restored
+            check (restored.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error")) "Sequence consumption repair retained an error"
+            checkSequenceContinuation restored consumedSequence
+            printfn "PASS CCS sequence consumption type and source definition after unsaved repair"
+
         if name.StartsWith("Sequence ", StringComparison.Ordinal) then
             let restored = session.CheckAsync(Map.ofList [ file, source nestedSequence ]).Result |> current
             validateSnapshot restored
@@ -715,6 +779,7 @@ output_kind = "library"
             sequenceOwnershipSources = [source guardedSequence; source effectOnlySequence]
             delegationSources = [source effectfulDelegation; source nestedDelegation]
             sequenceEvaluationSources = [source loopingSequence; source deferredSequence]
+            sequenceContinuationSources = [source nestedLocalSequence; source countedSequence; source consumedSequence]
             directCaptures =
                 {|
                     source = directCaptures

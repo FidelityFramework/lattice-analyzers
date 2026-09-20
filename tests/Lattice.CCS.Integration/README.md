@@ -92,6 +92,27 @@ retain measured result hovers, the lambda's source signature and original
 capture definitions. CCS tests own `SequenceEvaluation` edge incidence,
 including backedges and deferred-body boundaries. This gate adds no client
 evaluation model and does not establish native suspension behavior.
+The C-06 continuation cases add bindings declared inside an outer sequence and
+captured by an inner sequence, covering immutable measured values and a mutable
+Boolean cell. Both resolve to their original source declarations. Ascending and
+descending counted sequence bodies retain `seq<int>` and their exact induction
+definitions; `for-in` consumption retains the element type. A scalar input is
+rejected with CCS8003 at the whole loop, and repair restores the consumed value's
+type and declaration link.
+
+The 2026-09-20 coordinated run passed **44 accepted and 46 exact rejected cases**,
+plus the separate capture and snapshot assertions, on CCS SHA-256
+`08d547524f7c76f61bb82e4a67e2f04ffe64b6ca37da7637ba2c4b2c07384482`.
+Evidence: `/tmp/lattice-ccs-surface-a5571e6451fd49eeb0018150240a0396/evidence.json`.
+Native behavior is recorded by Composer's separate `15a_SequenceSemantics` gate.
+The later `15c_SequenceTemplateBorrows` native gate passes on CCS
+`f4bbc2879280b8252e3c7424a1b399e981eb492e49b07fb1def617d45f432c1a`.
+Editor/server artifacts were refreshed to it; the unchanged source projections
+retain the tested `08d54752…84482` evidence above. This is a C-06 implementation
+waypoint with remaining native regression gates, recorded in the
+[shared waypoint](../../docs/option-waypoint.md), not complete C-06 conformance.
+The compiler implementation is
+[`12aa78d2b`](https://github.com/FidelityFramework/clef/commit/12aa78d2b).
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.
