@@ -82,6 +82,11 @@ to their original declarations. A yield escaping into an ordinary lambda or lazy
 body requires CCS8401 at the yield form; repair restores the owner types and
 source definitions. Raw suspension-hyperedge incidence is checked by CCS tests;
 this gate reads the public source projections without adding an editor graph API.
+An effectful `yield!` operand and nested `Seq.append`/`collect` composition retain
+their measured sequence types and original capture definitions after delegation
+elaboration. The source delegation keeps its exact range and unit-valued hover
+as the compiler's sequential wrapper. Generated iterator loops are compiler graph
+tests; these projections establish neither guarded execution nor exhaustion behavior.
 Local module and record definitions of `Math.sin` retain their measured result
 hover. These unsaved lexical definitions clear an intrinsic `Math.sin` dimensional
 error, whose CCS8040 severity and full application span are checked exactly.

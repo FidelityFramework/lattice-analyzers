@@ -44,6 +44,12 @@ let guardedSequence =
 let effectOnlySequence =
     "let selected =\n    let mutable touched = false\n    let empty: seq<unit> = seq { touched <- not touched }\n    empty"
 
+let effectfulDelegation =
+    "let selected =\n    let mutable visits = 1<m>\n    seq {\n        yield! (\n            visits <- 2<m>\n            seq { yield visits }\n        )\n    }"
+
+let nestedDelegation =
+    "let selected =\n    let offset = 2<m>\n    let projected = Seq.collect (fun (value: int<m>) -> seq { yield value + offset }) (seq { yield 1<m> })\n    Seq.append (seq { yield! projected }) (seq { yield offset })"
+
 // Shared source contract with Composer/tests/CCS.Editor.Tests/Program.fs.
 let directCaptures =
     """module DirectCaptures
@@ -111,6 +117,8 @@ let accepted =
         "Seq producer collect/append", collectedSequence
         "Sequence ownership guarded delegation", guardedSequence
         "Sequence ownership effect without yield", effectOnlySequence
+        "Delegation effectful operand", effectfulDelegation
+        "Delegation nested producers", nestedDelegation
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -336,6 +344,38 @@ output_kind = "library"
             equal "VarRef" captured.Kind
             equal (Some declaration.Range) captured.Definition
 
+    let checkDelegation (snapshot: EditorSnapshot) (body: string) =
+        let lines = (source body).Split('\n')
+        let at (marker: string) (token: string) =
+            let line = lines |> Array.findIndex (fun text -> text.Contains(marker, StringComparison.Ordinal))
+            line, lines[line].IndexOf(token, StringComparison.Ordinal)
+        let hoverAt marker token =
+            let line, column = at marker token
+            session.TryHover(snapshot.Revision, file, line, column) |> current
+        equal "seq<int<m>>" (hoverAt "let selected" "selected").Type
+        let effectful = body = effectfulDelegation
+        let marker = if effectful then "yield! (" else "Seq.append"
+        let delegation = hoverAt marker "yield!"
+        equal "unit" delegation.Type
+        equal None delegation.Name
+        equal "Sequential" delegation.Kind
+        if effectful then
+            let line, column = at "yield! (" "yield!"
+            let endLine, endColumn = at "        )" ")"
+            equal { FilePath = file; StartLine = line; StartCharacter = column; EndLine = endLine; EndCharacter = endColumn + 1 } delegation.Range
+            equal "seq<int<m>>" (hoverAt "seq { yield visits }" "seq").Type
+        else
+            equal "seq<int<m>>" (hoverAt "let projected" "projected").Type
+            equal "seq<int<m>>" (hoverAt "Seq.append" " (seq { yield offset })").Type
+        let token, declarationMarker, useMarker =
+            if effectful then "visits", "let mutable visits", "seq { yield visits }"
+            else "offset", "let offset", "let projected"
+        let declaration = hoverAt declarationMarker token
+        let captured = hoverAt useMarker token
+        equal "int<m>" captured.Type
+        equal "VarRef" captured.Kind
+        equal (Some declaration.Range) captured.Definition
+
     let checkLoopCapture (snapshot: EditorSnapshot) =
         let lines = (source loopCapture).Split('\n')
         let hoverAt (marker: string) (name: string) reference =
@@ -373,6 +413,8 @@ output_kind = "library"
             checkSequenceProducer snapshot body
         elif name.StartsWith("Sequence ownership ", StringComparison.Ordinal) then
             checkSequenceOwnership snapshot body
+        elif name.StartsWith("Delegation ", StringComparison.Ordinal) then
+            checkDelegation snapshot body
         elif name = "nested sequence element owners" then
             checkNestedSequence snapshot
         elif name = "native seq source" then
@@ -639,6 +681,7 @@ output_kind = "library"
             capturedSequenceSource = source capturedSequence
             sequenceProducerSources = [source mappedSequence; source collectedSequence]
             sequenceOwnershipSources = [source guardedSequence; source effectOnlySequence]
+            delegationSources = [source effectfulDelegation; source nestedDelegation]
             directCaptures =
                 {|
                     source = directCaptures
