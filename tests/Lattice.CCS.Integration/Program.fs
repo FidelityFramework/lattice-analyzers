@@ -67,6 +67,14 @@ let accepted =
         "let choose = Option.foldBack<int<m>, int<s>> (fun value state -> state) (Some 2<s>)\nlet selected = choose 1<m>"
         "fold bare aliases",
         "let forward = Option.fold\nlet backward = Option.foldBack\nlet first = forward (fun (state: int<m>) (_: int<s>) -> state) 1<m> (Some 2<s>)\nlet selected = backward (fun (_: int<s>) (state: int<m>) -> state) (Some 3<s>) first"
+        "Result.map partial changes success dimension",
+        "[<Measure>] type kg\nlet choose = Result.map<int<m>, int<kg>, int<s>> (fun _ -> 1<kg>)\nlet selected = choose (Ok 2<m>)"
+        "Result.mapError changes error dimension",
+        "[<Measure>] type kg\nlet selected = Result.mapError<int<m>, int<s>, int<kg>> (fun _ -> 1<kg>) (Error 2<s>)"
+        "Result.bind preserves error dimension",
+        "[<Measure>] type kg\nlet selected = Result.bind<int<m>, int<kg>, int<s>> (fun _ -> Ok 1<kg>) (Ok 2<m>)"
+        "integer range loop",
+        "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
     ]
 
 // Lexical declarations own these names; neither is the dimensionless intrinsic.
@@ -118,6 +126,18 @@ let rejected =
         "let selected = «Option.foldBack (fun (_: int<s>) (state: int<m>) -> state) (Some 2<m>)» 1<m>"
         "fold callback result dimension", "CCS8040",
         "let selected = «Option.fold (fun (state: int<m>) (_: int<s>) -> 1<s>)» 1<m> None"
+        "Result.map success dimension", "CCS8040",
+        "let selected = «Result.map (fun (_: int<m>) -> true) (Ok 2<s>: Result<int<s>, bool>)»"
+        "Result.mapError error dimension", "CCS8040",
+        "let selected = «Result.mapError (fun (_: int<m>) -> true) (Error 2<s>: Result<bool, int<s>>)»"
+        "Result.bind shared error dimension", "CCS8040",
+        "let selected = «Result.bind (fun (_: bool) -> (Error 3<m>: Result<bool, int<m>>)) (Error 2<s>: Result<bool, int<s>>)»"
+        "range loop floating bound", "CCS8003",
+        "let selected =\n    «for index in 0.0 .. 1 do ignore index»\n    ()"
+        "range loop Boolean bound", "CCS8003",
+        "let selected =\n    «for index in true .. 1 do ignore index»\n    ()"
+        "range loop measured bound", "CCS8040",
+        "let selected =\n    «for index in 1<m> .. 3 do ignore index»\n    ()"
         "intrinsic Math.sin dimension", "CCS8040", "let selected = «Math.sin 1.0<m>»"
     ]
 
@@ -176,7 +196,23 @@ output_kind = "library"
 
         let hover = session.TryHover(snapshot.Revision, file, selectedLine, 5) |> current
 
-        if name.StartsWith("iter", StringComparison.Ordinal) then
+        if name = "integer range loop" then
+            equal "unit" hover.Type
+            let lines = (prelude + body).Split('\n')
+            let loopLine = lines |> Array.findIndex (fun line -> line.Contains("for index", StringComparison.Ordinal))
+            let indexColumn = lines[loopLine].LastIndexOf("index", StringComparison.Ordinal)
+            let induction = session.TryHover(snapshot.Revision, file, loopLine, indexColumn) |> current
+            equal "int" induction.Type
+            equal "VarRef" induction.Kind
+        elif name.StartsWith("Result.", StringComparison.Ordinal) then
+            let expected = if name.StartsWith("Result.mapError", StringComparison.Ordinal) then "Result<int<m>, int<kg>>" else "Result<int<kg>, int<s>>"
+            equal expected hover.Type
+
+            if name.Contains("partial", StringComparison.Ordinal) then
+                let partialLine = (prelude + body).Split('\n') |> Array.findIndex (fun line -> line.StartsWith("let choose"))
+                let partial = session.TryHover(snapshot.Revision, file, partialLine, 5) |> current
+                equal "Result<int<m>, int<s>> -> Result<int<kg>, int<s>>" partial.Type
+        elif name.StartsWith("iter", StringComparison.Ordinal) then
             equal "unit" hover.Type
 
             if name = "iter partial action" then
@@ -342,7 +378,7 @@ output_kind = "library"
             compilerHash = compilerHash
             accepted = accepted @ lexicalMath |> List.map fst
             scope =
-                "Option, direct immutable capture and lexical Math projections through CCS.Editor; no analyzer rule or native execution claim"
+                "Option/Result, integer ranges, direct immutable capture and lexical Math projections through CCS.Editor; no analyzer rule or native execution claim"
             lexicalMathRepairs = lexicalMathRepairs
             directCaptures =
                 {|
