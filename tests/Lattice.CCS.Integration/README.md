@@ -41,6 +41,11 @@ changing one preserves the other. Exact result and stored-partial hovers retain
 both type arguments, including their declared explicit generic order.
 Callback payload mismatches and a bind callback that changes the error dimension
 require CCS8040 at the exact application span.
+Result defaults retain measured success types independently of the error type;
+`defaultWith` takes that error payload and its partial signature exposes both
+Result arguments. `Result.iter` retains a unit result for its measured action.
+Wrong fallback/callback dimensions and nonunit actions require exact CCS8040 or
+CCS8003 spans; unsaved repairs restore the corresponding result and partial hovers.
 Simple parenthesized integer ranges retain a unit result and an `int` induction
 reference hover. Floating, Boolean and measured bounds require CCS8003/CCS8040
 at the complete loop span, as in the compiler's `RangeLoopCases` fixtures.

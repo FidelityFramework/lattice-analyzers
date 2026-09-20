@@ -76,6 +76,12 @@ let accepted =
         "[<Measure>] type kg\nlet selected = Result.mapError<int<m>, int<s>, int<kg>> (fun _ -> 1<kg>) (Error 2<s>)"
         "Result.bind preserves error dimension",
         "[<Measure>] type kg\nlet selected = Result.bind<int<m>, int<kg>, int<s>> (fun _ -> Ok 1<kg>) (Ok 2<m>)"
+        "Result.defaultValue measured success",
+        "let selected = Result.defaultValue<int<m>, int<s>> 1<m> (Error 2<s>)"
+        "Result.defaultWith partial error handler",
+        "let choose = Result.defaultWith<int<m>, int<s>> (fun error -> error * 1<m> / 1<s>)\nlet selected = choose (Error 2<s>)"
+        "Result.iter measured action",
+        "let selected = Result.iter<int<m>, int<s>> (fun value -> ignore value) (Ok 2<m>)"
         "integer range loop",
         "let selected =\n    for index in (-2 .. 2) do ignore index\n    ()"
         "loop capture source signature", loopCapture
@@ -136,6 +142,12 @@ let rejected =
         "let selected = «Result.mapError (fun (_: int<m>) -> true) (Error 2<s>: Result<bool, int<s>>)»"
         "Result.bind shared error dimension", "CCS8040",
         "let selected = «Result.bind (fun (_: bool) -> (Error 3<m>: Result<bool, int<m>>)) (Error 2<s>: Result<bool, int<s>>)»"
+        "Result.defaultValue fallback dimension", "CCS8040",
+        "let selected = «Result.defaultValue 1<m> (Ok 2<s>: Result<int<s>, bool>)»"
+        "Result.defaultWith error callback dimension", "CCS8040",
+        "let selected = «Result.defaultWith (fun (_: int<s>) -> 1<m>) (Error 2<m>: Result<int<m>, int<m>>)»"
+        "Result.iter nonunit action", "CCS8003",
+        "let selected = «Result.iter (fun (_: bool) -> 3)» (Ok true: Result<bool, bool>)"
         "range loop floating bound", "CCS8003",
         "let selected =\n    «for index in 0.0 .. 1 do ignore index»\n    ()"
         "range loop Boolean bound", "CCS8003",
@@ -230,13 +242,20 @@ output_kind = "library"
             equal "int" induction.Type
             equal "VarRef" induction.Kind
         elif name.StartsWith("Result.", StringComparison.Ordinal) then
-            let expected = if name.StartsWith("Result.mapError", StringComparison.Ordinal) then "Result<int<m>, int<kg>>" else "Result<int<kg>, int<s>>"
+            let expected =
+                if name.StartsWith("Result.default", StringComparison.Ordinal) then "int<m>"
+                elif name.StartsWith("Result.iter", StringComparison.Ordinal) then "unit"
+                elif name.StartsWith("Result.mapError", StringComparison.Ordinal) then "Result<int<m>, int<kg>>"
+                else "Result<int<kg>, int<s>>"
             equal expected hover.Type
 
             if name.Contains("partial", StringComparison.Ordinal) then
                 let partialLine = (prelude + body).Split('\n') |> Array.findIndex (fun line -> line.StartsWith("let choose"))
                 let partial = session.TryHover(snapshot.Revision, file, partialLine, 5) |> current
-                equal "Result<int<m>, int<s>> -> Result<int<kg>, int<s>>" partial.Type
+                let expectedPartial =
+                    if name.StartsWith("Result.defaultWith", StringComparison.Ordinal) then "Result<int<m>, int<s>> -> int<m>"
+                    else "Result<int<m>, int<s>> -> Result<int<kg>, int<s>>"
+                equal expectedPartial partial.Type
         elif name.StartsWith("iter", StringComparison.Ordinal) then
             equal "unit" hover.Type
 
@@ -363,6 +382,22 @@ output_kind = "library"
         equal (Some expected) diagnostic.Range
         check (not (String.IsNullOrWhiteSpace diagnostic.Message)) "Compiler diagnostic lost its explanation"
         printfn "PASS CCS rejection: %s (%s, exact source range)" name code
+
+        if name.StartsWith("Result.default", StringComparison.Ordinal) || name.StartsWith("Result.iter", StringComparison.Ordinal) then
+            let operation = name.Split(' ')[0]
+            let _, body = accepted |> List.find (fun (acceptedName, _) -> acceptedName.StartsWith(operation, StringComparison.Ordinal))
+            let text = source body
+            let restored = session.CheckAsync(Map.ofList [ file, text ]).Result |> current
+            validateSnapshot restored
+            check (restored.Diagnostics |> List.forall (fun d -> d.EffectiveSeverity <> "Error")) "Result repair retained an error"
+            let lines = text.Split('\n')
+            let selectedLine = lines |> Array.findIndex (fun line -> line.StartsWith("let selected"))
+            let expectedType = if operation = "Result.iter" then "unit" else "int<m>"
+            equal expectedType (session.TryHover(restored.Revision, file, selectedLine, 5) |> current).Type
+            if operation = "Result.defaultWith" then
+                let partialLine = lines |> Array.findIndex (fun line -> line.StartsWith("let choose"))
+                equal "Result<int<m>, int<s>> -> int<m>" (session.TryHover(restored.Revision, file, partialLine, 5) |> current).Type
+            printfn "PASS CCS Result projection after unsaved repair: %s" operation
 
         if name.StartsWith("immutable loop", StringComparison.Ordinal) then
             check (diagnostic.Message.Contains("not found or not mutable", StringComparison.Ordinal)) "Loop assignment lost its immutable-binding explanation"
