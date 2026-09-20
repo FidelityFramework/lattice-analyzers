@@ -24,6 +24,12 @@ unsaved edit repair, unchanged disk source
 and immutable retained snapshots. A temporary `evidence.json` records the loaded compiler path,
 its SHA-256 identity, cases and revisions. The executable exits nonzero on any failed assertion.
 
+The optional fallback corpus covers `Option.orElse` and `Option.orElseWith` through
+direct, partial and bare-alias applications. Their result hovers must remain
+`int<m> option`; partial hovers retain both option domains/results. Mismatched
+dimensions, nonoption fallbacks/results and nonunit thunk arguments require the
+existing CCS8040/CCS8003 errors at their exact source spans.
+
 This is a compiler-consumer integration gate, not a ported analyzer or a language execution
 oracle. The [waypoint](../../docs/option-waypoint.md) links the separately owned compiler,
 LSP and source-to-native gates.

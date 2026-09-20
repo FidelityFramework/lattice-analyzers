@@ -48,6 +48,14 @@ let accepted =
         "function payload", "let selected = Option.defaultWith (fun () -> fun (x: int<m>) -> x) None 2<m>"
         "negative dimension", "let selected = Option.defaultWith (fun () -> 1<m^-1>) (Some (2 / 1<m>))"
         "fractional value", "let selected = Option.defaultWith (fun () -> -0.25<m^-1>) (Some (1.0 / 2.0<m>))"
+        "orElse eager optional result", "let selected = Option.orElse (Some 1<m>) None"
+        "orElseWith deferred optional result", "let selected = Option.orElseWith (fun () -> Some 2<m>) (Some 3<m>)"
+        "orElse partial optional result", "let choose = Option.orElse (Some 4<m>)\nlet selected = choose None"
+        "orElseWith partial optional result",
+        "let choose = Option.orElseWith (fun () -> Some 5<m>)\nlet selected = choose None"
+        "orElse bare alias optional result", "let choose = Option.orElse\nlet selected = choose None (Some 6<m>)"
+        "orElseWith bare alias optional result",
+        "let choose = Option.orElseWith\nlet selected = choose (fun () -> Some 7<m>) None"
     ]
 
 // Markers identify the exact compiler diagnostic span; parser/project failures
@@ -64,6 +72,19 @@ let rejected =
         "thunk argument", "CCS8003", "let selected = «Option.defaultWith (fun (_: int<m>) -> 1<m>)» None"
         "missing thunk", "CCS8003", "let selected = «Option.defaultWith 1<m>» None"
         "fractional dimension rejected", "CCS8048", "let selected = Option.defaultWith<float<«m^(1/2)»>>"
+        "orElse fallback option dimension", "CCS8040", "let selected = «Option.orElse (Some 1<m>) (Some 2<s>)»"
+        "orElse partial dimension",
+        "CCS8040",
+        "let choose = Option.orElse (Some 1<m>)\nlet selected = «choose (Some 2<s>)»"
+        "orElse nonoption fallback", "CCS8003", "let selected = «Option.orElse 1<m>» None"
+        "orElseWith fallback option dimension",
+        "CCS8040",
+        "let selected = «Option.orElseWith (fun () -> Some 1<m>) (Some 2<s>)»"
+        "orElseWith partial dimension",
+        "CCS8040",
+        "let choose = Option.orElseWith (fun () -> Some 1<m>)\nlet selected = «choose (Some 2<s>)»"
+        "orElseWith thunk domain", "CCS8003", "let selected = «Option.orElseWith (fun (_: int<m>) -> Some 1<m>)» None"
+        "orElseWith nonoption thunk result", "CCS8003", "let selected = «Option.orElseWith (fun () -> 1<m>)» None"
         "direct capture explicit argument dimension",
         "CCS8040",
         "let selected =\n    let offset = 7<m>\n    let shift (value: int<m>) = offset + value\n    «shift 3<s>»"
@@ -124,6 +145,14 @@ output_kind = "library"
 
         let hover = session.TryHover(snapshot.Revision, file, selectedLine, 5) |> current
         check (hover.Type.Contains("m")) $"{name}: lost dimensional type {hover.Type}"
+
+        if name.StartsWith("orElse", StringComparison.Ordinal) then
+            equal "int<m> option" hover.Type
+
+            if name.Contains("partial", StringComparison.Ordinal) then
+                let partial = session.TryHover(snapshot.Revision, file, 3, 5) |> current
+                equal "int<m> option -> int<m> option" partial.Type
+
         printfn "PASS CCS projection: %s" name
 
     let captureSnapshot =
