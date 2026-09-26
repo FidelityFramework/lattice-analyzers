@@ -391,7 +391,9 @@ output_kind = "library"
             for operation in ["Seq.filter"; "Seq.map"] do
                 let captured = hoverAt operation "threshold"
                 equal "int<m>" captured.Type
-                equal "EnvironmentRead" captured.Kind
+                // Source hover retains the original reference; environment
+                // storage remains an internal compiler representation.
+                equal "VarRef" captured.Kind
                 equal (Some declaration.Range) captured.Definition
 
     let checkSequenceOwnership (snapshot: EditorSnapshot) (body: string) =
